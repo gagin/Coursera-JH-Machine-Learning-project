@@ -1,0 +1,34 @@
+---
+title: "Barbell movement analysis"
+output: html_document
+---
+
+```{r, include=FALSE}
+library(caret)
+library(dplyr)
+```
+
+Load data
+
+```{r}
+remote<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+localzip<-basename(remote)
+if(!file.exists(localzip)) download.file(remote,localzip)
+if(!exists("loaded")) loaded <- read.csv(localzip)
+# Keep original data frame for console work caching and make a mutable copy
+working<-loaded
+set.seed(1000)
+inTrain = createDataPartition(working$classe, p = 3/4, list=FALSE)
+training = working[ inTrain,]
+testing = working[-inTrain,]
+
+````
+
+Exploration
+```{r}
+dim(working)
+dim(training)
+nas<-sapply(training, function(x) sum(is.na(x) | x==""))
+trainingNotNA<-training[,names(nas[nas == 0])]
+dim(trainingNotNA)
+```
