@@ -74,4 +74,195 @@ accuracy is high: 99.68-99.93%.
 set.seed(1)
 mod1<-train(classe~.,data=tr,method="rf")
 confusionMatrix(predict(mod1, testing),testing$classe)
+system.time(mod3<-train(classe~., data=tr,method="rf", ntree=3))
+confusionMatrix(predict(mod3, testing),testing$classe)
+system.time(mod2<-train(classe~., data=tr,method="rf", ntree=2))
+confusionMatrix(predict(mod2, testing),testing$classe)
+system.time(mod1<-train(classe~., data=tr,method="rf", ntree=1))
+confusionMatrix(predict(mod1, testing),testing$classe)
+
+if(FALSE){
+        > system.time(mod3<-train(classe~., data=tr,method="rf", ntree=3))
+   user  system elapsed 
+  58.84    0.34   59.39 
+> confusionMatrix(predict(mod3, testing),testing$classe)
+Confusion Matrix and Statistics
+
+          Reference
+Prediction    A    B    C    D    E
+         A 1390   11    0    0    1
+         B    2  928   10    4    2
+         C    2    3  837    8    0
+         D    1    2    7  786    8
+         E    0    5    1    6  890
+
+Overall Statistics
+                                          
+               Accuracy : 0.9851          
+                 95% CI : (0.9813, 0.9883)
+    No Information Rate : 0.2845          
+    P-Value [Acc > NIR] : < 2e-16         
+                                          
+                  Kappa : 0.9812          
+ Mcnemar's Test P-Value : 0.06789         
+
+Statistics by Class:
+
+                     Class: A Class: B Class: C Class: D Class: E
+Sensitivity            0.9964   0.9779   0.9789   0.9776   0.9878
+Specificity            0.9966   0.9954   0.9968   0.9956   0.9970
+Pos Pred Value         0.9914   0.9810   0.9847   0.9776   0.9867
+Neg Pred Value         0.9986   0.9947   0.9956   0.9956   0.9973
+Prevalence             0.2845   0.1935   0.1743   0.1639   0.1837
+Detection Rate         0.2834   0.1892   0.1707   0.1603   0.1815
+Detection Prevalence   0.2859   0.1929   0.1733   0.1639   0.1839
+Balanced Accuracy      0.9965   0.9867   0.9879   0.9866   0.9924
+> system.time(mod2<-train(classe~., data=tr,method="rf", ntree=2))
+   user  system elapsed 
+  45.27    0.31   45.64 
+> confusionMatrix(predict(mod2, testing),testing$classe)
+Confusion Matrix and Statistics
+
+          Reference
+Prediction    A    B    C    D    E
+         A 1385    9    1    5    4
+         B    9  903   13    5    8
+         C    1   22  829    7    1
+         D    0    9   12  784   15
+         E    0    6    0    3  873
+
+Overall Statistics
+                                          
+               Accuracy : 0.9735          
+                 95% CI : (0.9686, 0.9778)
+    No Information Rate : 0.2845          
+    P-Value [Acc > NIR] : < 2e-16         
+                                          
+                  Kappa : 0.9665          
+ Mcnemar's Test P-Value : 0.01053         
+
+Statistics by Class:
+
+                     Class: A Class: B Class: C Class: D Class: E
+Sensitivity            0.9928   0.9515   0.9696   0.9751   0.9689
+Specificity            0.9946   0.9912   0.9923   0.9912   0.9978
+Pos Pred Value         0.9865   0.9627   0.9640   0.9561   0.9898
+Neg Pred Value         0.9971   0.9884   0.9936   0.9951   0.9930
+Prevalence             0.2845   0.1935   0.1743   0.1639   0.1837
+Detection Rate         0.2824   0.1841   0.1690   0.1599   0.1780
+Detection Prevalence   0.2863   0.1913   0.1754   0.1672   0.1799
+Balanced Accuracy      0.9937   0.9713   0.9810   0.9832   0.9833
+> system.time(mod1<-train(classe~., data=tr,method="rf", ntree=1))
+   user  system elapsed 
+  31.44    0.44   31.90 
+> confusionMatrix(predict(mod1, testing),testing$classe)
+Confusion Matrix and Statistics
+
+          Reference
+Prediction    A    B    C    D    E
+         A 1377   12    3    4    3
+         B    6  911   15    9   11
+         C    4   10  811   16   15
+         D    6   11   26  760   10
+         E    2    5    0   15  862
+
+Overall Statistics
+                                         
+               Accuracy : 0.9627         
+                 95% CI : (0.957, 0.9678)
+    No Information Rate : 0.2845         
+    P-Value [Acc > NIR] : < 2.2e-16      
+                                         
+                  Kappa : 0.9528         
+ Mcnemar's Test P-Value : 0.006215       
+
+Statistics by Class:
+
+                     Class: A Class: B Class: C Class: D Class: E
+Sensitivity            0.9871   0.9600   0.9485   0.9453   0.9567
+Specificity            0.9937   0.9896   0.9889   0.9871   0.9945
+Pos Pred Value         0.9843   0.9569   0.9474   0.9348   0.9751
+Neg Pred Value         0.9949   0.9904   0.9891   0.9892   0.9903
+Prevalence             0.2845   0.1935   0.1743   0.1639   0.1837
+Detection Rate         0.2808   0.1858   0.1654   0.1550   0.1758
+Detection Prevalence   0.2853   0.1941   0.1746   0.1658   0.1803
+Balanced Accuracy      0.9904   0.9748   0.9687   0.9662   0.9756
+}
+'
 ```
+
+Try to use less variables to make it work faster
+
+```{r}
+system.time(mod42<-train(classe~., data=tr[,c(2,3,4,5,55)],method="rf", ntree=3))
+confusionMatrix(predict(mod42, testing),testing$classe)
+# 12 sec,  99.6-99.89%
+```
+
+But why these four?
+
+```{r}
+pps<-prcomp(tr[, -c(1,55)], scale=T)
+sort(pps$rotation[,1]) %>% tail(4) %>% names -> impacting
+mod47<-train(classe~., data=tr[,c(impacting,"classe")],method="rf", ntree=3)
+confusionMatrix(predict(mod47, testing),testing$classe)
+# Still only 63%
+```
+
+Try to scale
+```{r}
+scaled <- sapply(tr[,-c(1,55)],scale) %>% as.data.frame
+tr5<-scaled
+tr5$classe<-tr$classe
+```
+
+Try neuralnet
+
+```{r}
+tr6<-tr[,-c(1,55)]
+ftml<-xyform("cl",names(tr6))
+tr6$cl<-ifelse(tr$classe=="A",1,0)
+nnA<-neuralnet(ftml,tr6,hidden=5,lifesign="full",thre=0.7)
+tr6$cl<-ifelse(tr$classe=="B",1,0)
+nnB<-neuralnet(ftml,tr6,hidden=5,lifesign="full",thre=0.7)
+tr6$cl<-ifelse(tr$classe=="C",1,0)
+nnC<-neuralnet(ftml,tr6,hidden=5,lifesign="full",thre=0.5)
+tr6$cl<-ifelse(tr$classe=="D",1,0)
+nnD<-neuralnet(ftml,tr6,hidden=5,lifesign="full",thre=0.7)
+tr6$cl<-ifelse(tr$classe=="E",1,0)
+nnE<-neuralnet(ftml,tr6,hidden=5,lifesign="full",thre=0.7)
+
+testingNotNA<-testing[,names(nas[nas == 0])]
+ts<-testingNotNA[,-(1:6)]
+ts6<-ts[,-c(54)]
+#ts6$cl<-ifelse(ts$classe=="A",1,0)
+#res<-ifelse(neuralnet::compute(nn, ts6)$net.result >0.5,1,0)
+#confusionMatrix(res,ts6$cl)
+# 82% of determining if it's A
+#isA<-neuralnet::compute(nnA, ts6)$net.result
+#isB<-neuralnet::compute(nnB, ts6)$net.result
+#isC<-neuralnet::compute(nnC, ts6)$net.result
+#isD<-neuralnet::compute(nnD, ts6)$net.result
+#isE<-neuralnet::compute(nnE, ts6)$net.result
+isA<-scale(neuralnet::compute(nnA, ts6)$net.result)
+isB<-scale(neuralnet::compute(nnB, ts6)$net.result)
+isC<-scale(neuralnet::compute(nnC, ts6)$net.result)
+isD<-scale(neuralnet::compute(nnD, ts6)$net.result)
+isE<-scale(neuralnet::compute(nnE, ts6)$net.result)
+projs<-cbind(isA,isB,isC,isD,isE)
+projs<-as.data.table(projs)
+setnames(projs,names(projs),c("A","B","C","D","E"))
+rrr<-matrix(NA,ncol=1)
+for(i in 1:length(projs$A)) rrr<-cbind(rrr,names(which.max(projs[i,])))
+#table(rrr[-1],ts$classe)
+confusionMatrix(rrr[-1],ts$classe)
+# Why C sensitivity is sooo low?
+# 40%
+confusionMatrix(ifelse(isA >0,1,0),ifelse(ts$classe=="A",1,0))
+# 80 %
+confusionMatrix(ifelse(isB >0,1,0),ifelse(ts$classe=="B",1,0))
+# 81 %
+confusionMatrix(ifelse(isC >0,1,0),ifelse(ts$classe=="C",1,0))
+# 81 %
+```
+
