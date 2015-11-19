@@ -1,7 +1,20 @@
 ---
 title: "Barbell movement analysis"
-output: html_document
+author: "Alex Gaggin"
+date: November 18, 2015
+output: pdf_document
 ---
+
+### Summary
+
+[A dataset](http://groupware.les.inf.puc-rio.br/har)
+with movement sensor data from 4 healthy subjects doing 5 classes
+of activities (sitting-down, standing-up, standing, walking,
+and sitting) was used to apply machine learning algorithms to identify
+these activities based on the sensor data. This is a course project
+for Practical Machines Leaning course in Data Science specialization on
+Coursera. Benchmark prediction accuracy for this dataset is listed as 99.4144%.
+
 
 ```{r, include=FALSE}
 # setwd(file.path(normalizePath("~"),"kaggle","predmachlearn-034"))
@@ -9,8 +22,11 @@ library(caret)
 library(dplyr)
 ```
 
-We download the training dataset and set aside a quarter of the training data
-to estimate out-of-sample error on our model.
+We download the training dataset and split it to three parts - 60% training,
+20% development test, 20% validation of out-of-sample error. The selected
+algorithm will be later re-trained on the full set of training data before
+making predictions on the testing part of the dataset that will be downloaded
+separately and submitted as a second part of this project assignment.
 
 ```{r}
 remote <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
@@ -20,36 +36,41 @@ if(!exists("loaded")) loaded <- read.csv(loc)
 # Keep original data frame for console work caching and make a mutable copy
 working <- loaded
 set.seed(1000)
-inTrain  <- createDataPartition(working$classe, p = 3/4, list=FALSE)
-training <- working[ inTrain, ]
-testing  <- working[-inTrain, ]
+inTrain  <- createDataPartition(working$classe, p = 0.6, list=FALSE)
+training <- working[inTrain, ]
+nontraining <- working[-inTrain, ]
+inTest <- createDataPartition(nontraining$classe, p = 0.5, list=FALSE)
+testing  <- nontraining[inTest, ]
+validating  <- nontraining[-inTest, ]
 ````
 
 We look at the data and set aside any columns that contain NAs, hoping that
 remaining variables will be sufficient for predictions. Later it's shown
 that they are indeed sufficient, but it if wouldn't be, we could have returned
 and try to handle NAs more
-intelligently - for example, cut these variables to bins and make NAs another
-bin.
-
-```{r}
-dim(working)
-dim(training)
+intelligently - for example, cut these variables to bins and make NAs to be just
+another bin.  
+Then we also remove non-sensor measurements: line numbers, user names,
+timestamps, and unclear factor variable new_window. This leaves us with 53
+variables.
+```{r, cache=TRUE}
 nas<-sapply(training, function(x) sum(is.na(x) | x==""))
 trainingNotNA<-training[,names(nas[nas == 0])]
-dim(trainingNotNA)
-str(trainingNotNA)
+tr<-trainingNotNA[,-(1:6)]
+dim(training)
+dim(tr)
 ```
 
-Let's remove line numbers, user names and timestamps.
+NUM_WINDOWS PREDICTS 99.97%
 
-```{r}
-head(working$X)
-# OK, X is indeed observation number.
-tr<-trainingNotNA[,-(1:5)]
+```{r, cache=TRUE}
+set.seed(1)
+system.time(mod222<-train(classe~num_window,data=training,method="rf"))
+confusionMatrix(predict(mod222, testing),testing$classe)
 ```
 
-Let's try fast classification tree first and see if it predicts well.
+We try fast classification tree first and see if it predicts well. It doesn't -
+accuracy is barely higher than a coin flip.
 
 ```{r, cache=TRUE}
 set.seed(1)
@@ -57,139 +78,144 @@ mod<-train(classe~.,data=tr,method="rpart")
 confusionMatrix(predict(mod, testing),testing$classe)
 ```
 
-We see that prediction is weak. We try to normalize data first and it doesn't
-help either.
+We run Random Forest on this dataset and with default parameters it gets high
+prediction accuracy (better than benchmark), but takes a lot of time to train,
+which is hard to work with in this research, especially for knitr paper.
+Speed can be improved by limiting number of trees (ntree parameter, which is 500
+by default),
+although at cost of accuracy. Also, using cross-validation instead of
+default bootstrapping as resampling method also improves the speed three times 
+while
+maintaining basically the same prediction accuracy. We use small number of trees just to
+compare speed by resampling method. On the test computer (desktop PC) training
+time shrinks from 46 to 15 seconds with repeatedcv method while keeping very
+similar confidence interval for prediction accuracy - 98.61%-99.2%.
+
+```{r, cache=TRUE}
+set.seed(1)
+system.time(mod5rf<-train(classe~., data=tr,method="rf", ntree=5))
+confusionMatrix(predict(mod5rf, testing),testing$classe)
+
+set.seed(1)
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=2)
+system.time(mod5rcv<-train(classe~., data=tr,method="rf", ntree=5, trControl=ctrl))
+confusionMatrix(predict(mod5rcv, testing),testing$classe)
+```
+
+We also see that using just single cross-validation is faster, but costs in
+accuracy - it falls to 97.81%-98.65%. Increasing number of repeats doesn't
+improve it. Increasing number of folds to 10 (default) increases accuracy
+to 98.94%-99.5%.
+
+```{r, cache=TRUE}
+set.seed(1)
+ctrl <- trainControl(method="cv", number=5)
+system.time(mod5cv<-train(classe~., data=tr,method="rf", ntree=5, trControl=ctrl))
+confusionMatrix(predict(mod5cv, testing),testing$classe)
+
+set.seed(1)
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=5)
+system.time(mod5rcv5<-train(classe~., data=tr,method="rf", ntree=5, trControl=ctrl))
+confusionMatrix(predict(mod5rcv5, testing),testing$classe)
+
+set.seed(1)
+ctrl <- trainControl(method="repeatedcv", number=10, repeats=2)
+system.time(mod5rcv10<-train(classe~., data=tr,method="rf", ntree=5, trControl=ctrl))
+confusionMatrix(predict(mod5rcv10, testing),testing$classe)
+```
+
+At 150 trees with 5 folds and 2 repeats it takes 6 minutes on a desktop PC
+to train it with prediction accuracy interval 99.43%-99.82% - still better than
+benchmark.
+
+
+```{r, cache=TRUE}
+set.seed(1)
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=2,
+                           verboseIter=TRUE)
+system.time(mod150<-train(classe~., data=tr,method="rf", ntree=150, trControl=ctrl))
+confusionMatrix(predict(mod150, testing),testing$classe)
+```
+
+We try to further improve speed while keeping accuracy by reducing number of
+features - we only keep ones that are most
+correlated with outcomes. We select three features that are most
+correlated with each of five predicted classes (each will be converted to
+separate 0/1 variable to calculate numeric correlations), and get 12
+correlated variables.
+
+```{r, cache=TRUE}
+nume<-tr[,1:53]
+nume$A <- ifelse(tr$classe == "A", 1, 0)
+nume$B <- ifelse(tr$classe == "B", 1, 0)
+nume$C <- ifelse(tr$classe == "C", 1, 0)
+nume$D <- ifelse(tr$classe == "D", 1, 0)
+nume$E <- ifelse(tr$classe == "E", 1, 0)
+nume.corr <- cor(nume)
+corA <- nume.corr[54,1:53] %>% sort(decr=TRUE) %>% head(3) %>% names
+corB <- nume.corr[55,1:53] %>% sort(decr=TRUE) %>% head(3) %>% names
+corC <- nume.corr[56,1:53] %>% sort(decr=TRUE) %>% head(3) %>% names
+corD <- nume.corr[57,1:53] %>% sort(decr=TRUE) %>% head(3) %>% names
+corE <- nume.corr[58,1:53] %>% sort(decr=TRUE) %>% head(3) %>% names
+(correlated <- unique(c(corA, corB, corC, corD, corE)))
+tr12 <- tr[, correlated]
+tr12$classe <- tr$classe
+```
+
+It looks like execution time almost halved this way, while prediction accuracy
+is similar. Supposedly Random Forest automatically discovers same feature
+importance.
 
 ```{r}
 set.seed(1)
-confusionMatrix(predict(train(classe~.,data=tr,method="rpart",
-                              preProcess=c("center","scale")), testing),
-                testing$classe)
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=2)
+system.time(mod5rcv5.12<-train(classe~., data=tr,method="rf", ntree=5, trControl=ctrl))
+confusionMatrix(predict(mod5rcv5.12, testing),testing$classe)
+# 15 sec (0.9861, 0.9927)
 ```
+
+Another approach is to check if multiple sensor are even needed. What if we
+predict just based on belt sensors?
+
+```{r}
+set.seed(1)
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=2)
+system.time(mod<-train(classe~., data=tr[, c(1,54)], method="rf", ntree=5, trControl=ctrl))
+confusionMatrix(predict(mod, testing),testing$classe)
+# 15 sec (0.9861, 0.9927)
+```
+
+To try another model,
+we use GBM (Generalized Boosted Regression Modeling) method with low number of
+trees to predict. We change number of trees and number of available features
+to compare speed and accuracy.
+
+```{r, cache=TRUE}
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=2, verboseIter=TRUE)
+set.seed(1)
+system.time(fitGBM5 <- train(classe~.,data=tr[,c(1:5,54)],
+                        method="gbm", trControl=ctrl))
+confusionMatrix(predict(fitGBM5, testing), testing$classe)
+set.seed(1)
+system.time(fitGBM50 <- train(classe~.,data=tr,
+                        method="gbm", n.trees=50, trControl=ctrl))
+confusionMatrix(predict(fitGBM50, testing), testing$classe)
+set.seed(1)
+system.time(fitGBM <- train(classe~.,data=tr12,
+                        method="gbm", n.trees=5, trControl=ctrl))
+confusionMatrix(predict(fitGBM, testing), testing$classe)
+# failed
+```
+
+It is much faster - takes 37 seconds to train on a
+desktop PC and we get prediction accuracy
+in the interval 99.15%-99.65% which is very close to benchmark set for this
+dataset.
 
 We use Random Forest to improve weak trees and find that with default settings
 accuracy is high: 99.68-99.93%.
 
-```{r, cached=TRUE}
-set.seed(1)
-mod1<-train(classe~.,data=tr,method="rf")
-confusionMatrix(predict(mod1, testing),testing$classe)
-system.time(mod3<-train(classe~., data=tr,method="rf", ntree=3))
-confusionMatrix(predict(mod3, testing),testing$classe)
-system.time(mod2<-train(classe~., data=tr,method="rf", ntree=2))
-confusionMatrix(predict(mod2, testing),testing$classe)
-system.time(mod1<-train(classe~., data=tr,method="rf", ntree=1))
-confusionMatrix(predict(mod1, testing),testing$classe)
 
-if(FALSE){
-        > system.time(mod3<-train(classe~., data=tr,method="rf", ntree=3))
-   user  system elapsed 
-  58.84    0.34   59.39 
-> confusionMatrix(predict(mod3, testing),testing$classe)
-Confusion Matrix and Statistics
-
-          Reference
-Prediction    A    B    C    D    E
-         A 1390   11    0    0    1
-         B    2  928   10    4    2
-         C    2    3  837    8    0
-         D    1    2    7  786    8
-         E    0    5    1    6  890
-
-Overall Statistics
-                                          
-               Accuracy : 0.9851          
-                 95% CI : (0.9813, 0.9883)
-    No Information Rate : 0.2845          
-    P-Value [Acc > NIR] : < 2e-16         
-                                          
-                  Kappa : 0.9812          
- Mcnemar's Test P-Value : 0.06789         
-
-Statistics by Class:
-
-                     Class: A Class: B Class: C Class: D Class: E
-Sensitivity            0.9964   0.9779   0.9789   0.9776   0.9878
-Specificity            0.9966   0.9954   0.9968   0.9956   0.9970
-Pos Pred Value         0.9914   0.9810   0.9847   0.9776   0.9867
-Neg Pred Value         0.9986   0.9947   0.9956   0.9956   0.9973
-Prevalence             0.2845   0.1935   0.1743   0.1639   0.1837
-Detection Rate         0.2834   0.1892   0.1707   0.1603   0.1815
-Detection Prevalence   0.2859   0.1929   0.1733   0.1639   0.1839
-Balanced Accuracy      0.9965   0.9867   0.9879   0.9866   0.9924
-> system.time(mod2<-train(classe~., data=tr,method="rf", ntree=2))
-   user  system elapsed 
-  45.27    0.31   45.64 
-> confusionMatrix(predict(mod2, testing),testing$classe)
-Confusion Matrix and Statistics
-
-          Reference
-Prediction    A    B    C    D    E
-         A 1385    9    1    5    4
-         B    9  903   13    5    8
-         C    1   22  829    7    1
-         D    0    9   12  784   15
-         E    0    6    0    3  873
-
-Overall Statistics
-                                          
-               Accuracy : 0.9735          
-                 95% CI : (0.9686, 0.9778)
-    No Information Rate : 0.2845          
-    P-Value [Acc > NIR] : < 2e-16         
-                                          
-                  Kappa : 0.9665          
- Mcnemar's Test P-Value : 0.01053         
-
-Statistics by Class:
-
-                     Class: A Class: B Class: C Class: D Class: E
-Sensitivity            0.9928   0.9515   0.9696   0.9751   0.9689
-Specificity            0.9946   0.9912   0.9923   0.9912   0.9978
-Pos Pred Value         0.9865   0.9627   0.9640   0.9561   0.9898
-Neg Pred Value         0.9971   0.9884   0.9936   0.9951   0.9930
-Prevalence             0.2845   0.1935   0.1743   0.1639   0.1837
-Detection Rate         0.2824   0.1841   0.1690   0.1599   0.1780
-Detection Prevalence   0.2863   0.1913   0.1754   0.1672   0.1799
-Balanced Accuracy      0.9937   0.9713   0.9810   0.9832   0.9833
-> system.time(mod1<-train(classe~., data=tr,method="rf", ntree=1))
-   user  system elapsed 
-  31.44    0.44   31.90 
-> confusionMatrix(predict(mod1, testing),testing$classe)
-Confusion Matrix and Statistics
-
-          Reference
-Prediction    A    B    C    D    E
-         A 1377   12    3    4    3
-         B    6  911   15    9   11
-         C    4   10  811   16   15
-         D    6   11   26  760   10
-         E    2    5    0   15  862
-
-Overall Statistics
-                                         
-               Accuracy : 0.9627         
-                 95% CI : (0.957, 0.9678)
-    No Information Rate : 0.2845         
-    P-Value [Acc > NIR] : < 2.2e-16      
-                                         
-                  Kappa : 0.9528         
- Mcnemar's Test P-Value : 0.006215       
-
-Statistics by Class:
-
-                     Class: A Class: B Class: C Class: D Class: E
-Sensitivity            0.9871   0.9600   0.9485   0.9453   0.9567
-Specificity            0.9937   0.9896   0.9889   0.9871   0.9945
-Pos Pred Value         0.9843   0.9569   0.9474   0.9348   0.9751
-Neg Pred Value         0.9949   0.9904   0.9891   0.9892   0.9903
-Prevalence             0.2845   0.1935   0.1743   0.1639   0.1837
-Detection Rate         0.2808   0.1858   0.1654   0.1550   0.1758
-Detection Prevalence   0.2853   0.1941   0.1746   0.1658   0.1803
-Balanced Accuracy      0.9904   0.9748   0.9687   0.9662   0.9756
-}
-'
-```
 
 Try to use less variables to make it work faster
 
