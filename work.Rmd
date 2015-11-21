@@ -24,11 +24,13 @@ can still be used to recognize weightlifting exercise styles with high degree
 of accuracy, and computing time for the learning process required to reach
 benchmark accuracy rate (the original article quotes 98.03%) is quite short.
 
+### Exploratory analysis
 
 ```{r, include=FALSE}
 # setwd(file.path(normalizePath("~"),"kaggle","predmachlearn-034"))
 library(caret)
 library(dplyr)
+library(gridExtra)
 ```
 
 We download the training dataset and split it to three parts - 60% training,
@@ -39,11 +41,11 @@ separately and submitted as a second part of this project assignment.
 
 ```{r}
 remote <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
-loc <- basename(remote)
-if(!file.exists(loc )) download.file(remote, loc)
-if(!exists("loaded")) loaded <- read.csv(loc)
-# Keep original data frame for console work caching and make a mutable copy
-working <- loaded
+dl.read <- function(remote) {
+        loc <- basename(remote)
+        if(!file.exists(loc )) download.file(remote, loc)
+        read.csv(loc)}
+working <- dl.read(remote)
 set.seed(1000)
 inTrain  <- createDataPartition(working$classe, p = 0.6, list=FALSE)
 training <- working[inTrain, ]
@@ -84,10 +86,10 @@ Because they go last, we assume that the last observation in each window contain
 some aggregate information for the whole window. Variable names agree to this
 assumption. Supposedly actual application (programmatic trainer) could rely
 on this aggregates for decisions, but for the purpose of this paper we ignore
-these additional variables and only keep ones that have values for every
+these additional variables and will only keep ones that have values for every
 observation.
 
-Now, all variables of each window are identified  as the same class (calculation
+By the way, all variables of each window are identified  as the same class (calculation
 to verify this statement is shown below). Apparently,
 because each window is an example of particular weightlifting exercise form.
 
@@ -96,58 +98,101 @@ because each window is an example of particular weightlifting exercise form.
 # window has values, and four others are zeroes.
 training$num_window %>% table(training$classe) %>% "=="(0) %>% rowSums %>%
         "!="(4) %>% sum
+
+larger <- training %>% with(qplot(X, num_window, color=classe,
+    main="Observation grouping per prediction\n class in the training sub-set"))
+smaller <- training[training$X %in% 5050:5150, ] %>%
+    with(qplot(X, num_window, color=classe,
+    main="Zoomed: each point is actually\n a horizonal row of points"))
+grid.arrange(larger, smaller, ncol=2)
 ```
 
-This is even more clearly shown as a chart.
+Thus, as Coursera's assignment provides in its testing set the num_window
+variable for the same users in the same range (so, from the same experiment),
+we can get answers without using machine learning, but with direct lookup by
+window number instead. We get these with the goal to use them as verification
+for machine learning predictions based on sensor data.
 
 ```{r}
-training %>% with(qplot(X, num_window, color=classe, main="text")) %>% print
-```
+remote <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+assignment <- dl.read(remote)
+# We use the full original training data set just in case of caret completely
+# missing some window in the training sample after partition
+classe.by.window <- function(window) {
+        working$classe[which(working$num_window == window)[1]]}
+(answers <- sapply(assignment$num_window,classe.by.window))
+````
 
-We also remove non-sensor measurements: line numbers, user names,
-timestamps and new window markers.
+### Data cleanup
+
+We now also remove non-sensor measurements: line numbers, user names,
+timestamps and window markers, and aggreate variables. We are left with 52
+predictor variables.
+
 ```{r, cache=TRUE}
 nas<-sapply(training, function(x) sum(is.na(x) | x == "" | x == "#DIV/0!"))
 trainingNotNA<-training[,names(nas[nas == 0])]
-tr<-trainingNotNA[,-(1:6)]
+tr<-trainingNotNA[,-(1:7)]
+dim(tr)
 ```
 
+### Training with Recursive Partitioning
 
-
-NUM_WINDOWS PREDICTS 99.97%
+We try to build simple decision tree and see that it fails to provide
+a prediction much better than a coin flip. We use accuracy rate and training
+time as two parameters we are interested in.
 
 ```{r, cache=TRUE}
 set.seed(1)
-system.time(mod222<-train(classe~num_window,data=training,method="rf"))
-confusionMatrix(predict(mod222, testing),testing$classe)
+system.time(
+        confusionMatrix(
+                predict(train(classe~., data=tr, method="rpart"), testing),
+                testing$classe)$overall[1] %>% print)
 ```
 
-We try fast classification tree first and see if it predicts well. It doesn't -
-accuracy is barely higher than a coin flip.
+### Training with Random Forest
+
+As simple tree failed, we now try to use Random Forest as an algorithm
+that is known for prediction accuracy. Because it's also known to be slow,
+we first try it with low number of trees to speed the check up. We see that
+accuracy is quite high, and so with higher number of trees we expect to get
+result close to the benchmark.
 
 ```{r, cache=TRUE}
 set.seed(1)
-mod<-train(classe~.,data=tr,method="rpart")
-confusionMatrix(predict(mod, testing),testing$classe)
+try.rf <- function(ctl, trees=5) {
+        system.time(
+                mod <- train(classe~., data=tr, method="rf",
+                             ntree=trees, trainControl=ctl)) %>% print       
+        confusionMatrix(predict(mod, testing),
+                        testing$classe)$overall[1] %>% print
+        return(mod)
+        }
+trainControl() %>% try.rf -> mod5
 ```
 
-We run Random Forest on this dataset and with default parameters it gets high
-prediction accuracy (better than benchmark), but takes a lot of time to train,
-which is hard to work with in this research, especially for knitr paper.
-Speed can be improved by limiting number of trees (ntree parameter, which is 500
-by default),
-although at cost of accuracy. Also, using cross-validation instead of
-default bootstrapping as resampling method also improves the speed three times 
-while
-maintaining basically the same prediction accuracy. We use small number of trees just to
-compare speed by resampling method. On the test computer (desktop PC) training
-time shrinks from 46 to 15 seconds with repeatedcv method while keeping very
-similar confidence interval for prediction accuracy - 98.61%-99.2%.
+Before running the long analysis, we try to optimize different parameters
+of the training. First, we try using cross-validation instead of
+default bootstrapping as resampling method and see that it improves the speed
+three times while
+maintaining basically the same prediction accuracy. For the speed, we keep
+number of trees low. We realize that we don't know if the comparison results
+depend on number of trees, but for the speed we presume they are.
 
 ```{r, cache=TRUE}
 set.seed(1)
-system.time(mod5rf<-train(classe~., data=tr,method="rf", ntree=5))
-confusionMatrix(predict(mod5rf, testing),testing$classe)
+trainControl(method="repeatedcv", number=5, repeats=2) %>% try.rf -> mod5rcv5.2
+
+set.seed(1)
+trainControl(method="repeatedcv", number=10, repeats=2) %>% try.rf -> mod5rcv10.2
+
+set.seed(1)
+trainControl(method="repeatedcv", number=5, repeats=5) %>% try.rf -> mod5rcv5.5
+
+set.seed(1)
+trainControl() %>% try.rf(20) -> mod20
+
+
 
 set.seed(1)
 ctrl <- trainControl(method="repeatedcv", number=5, repeats=2)
