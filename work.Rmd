@@ -7,13 +7,22 @@ output: pdf_document
 
 ### Summary
 
-[A dataset](http://groupware.les.inf.puc-rio.br/har)
-with movement sensor data from 4 healthy subjects doing 5 classes
-of activities (sitting-down, standing-up, standing, walking,
-and sitting) was used to apply machine learning algorithms to identify
-these activities based on the sensor data. This is a course project
-for Practical Machines Leaning course in Data Science specialization on
-Coursera. Benchmark prediction accuracy for this dataset is listed as 99.4144%.
+[A dataset](http://groupware.les.inf.puc-rio.br/har) analyzed in this paper
+includes sensor data from six subjects executing same weightlifting excersize
+in five styles, only one of which is correct. It's shown how machine learning
+can be used two interpret sensor data to recognize exercise styles. Practical
+application for this kind of technology would be a programmatic trainer that
+advises a trainee to correct their exercise form.
+This particular paper though is done as a course project for Practical Machine
+Learning class
+in Data Science specialization on Coursera and is focused on applying machine
+learning methods to the dataset.
+
+While it will be shown that we do not need machine learning algorithms to generate
+correct prediction for testing dataset provided by Coursera, sensor data
+can still be used to recognize weightlifting exercise styles with high degree
+of accuracy, and computing time for the learning process required to reach
+benchmark accuracy rate (the original article quotes 98.03%) is quite short.
 
 
 ```{r, include=FALSE}
@@ -42,24 +51,68 @@ nontraining <- working[-inTrain, ]
 inTest <- createDataPartition(nontraining$classe, p = 0.5, list=FALSE)
 testing  <- nontraining[inTest, ]
 validating  <- nontraining[-inTest, ]
+dim(working)
+dim(training)
+dim(testing)
+dim(validating)
 ````
 
-We look at the data and set aside any columns that contain NAs, hoping that
-remaining variables will be sufficient for predictions. Later it's shown
-that they are indeed sufficient, but it if wouldn't be, we could have returned
-and try to handle NAs more
-intelligently - for example, cut these variables to bins and make NAs to be just
-another bin.  
-Then we also remove non-sensor measurements: line numbers, user names,
-timestamps, and unclear factor variable new_window. This leaves us with 53
-variables.
+But visually reviewing data via View(), it can be seen that the data is grouped
+to windows identified by common "num_window" variable
+where the last entry has new_window==yes and then it has
+more non-empty variables associated with it then observations with
+new_window==no.These
+ones have a lot of NAs, and "Div/0!", and empty values instead.
+
+We select a short example of the data to illustrate this structure here.
+We keep in mind that in the training set some rows are taken out for
+verification sub-sets while selecting it, and remember that so the actual window
+is probably longer, and there are more variables that shown in the example.
+
+```{r}
+finished <- training[training$new_window == "yes", "num_window"]
+have.prev <- finished[((finished-1) %in% finished)]
+length <- training[training$num_window %in% have.prev,
+                                "num_window"] %>% table %>% .[.>1] %>% "["(1)
+last.obs <- training %>% with(new_window == "yes" &
+                                      num_window == names(length)) %>% which
+range.obs <- (last.obs - length - 1):(last.obs + 1)
+training[range.obs,c(1,2,6,7,8,12,17,18,160)]
+```
+
+Because they go last, we assume that the last observation in each window contains
+some aggregate information for the whole window. Variable names agree to this
+assumption. Supposedly actual application (programmatic trainer) could rely
+on this aggregates for decisions, but for the purpose of this paper we ignore
+these additional variables and only keep ones that have values for every
+observation.
+
+Now, all variables of each window are identified  as the same class (calculation
+to verify this statement is shown below). Apparently,
+because each window is an example of particular weightlifting exercise form.
+
+```{r}
+# A cross table of window number vs response class, only one class for each
+# window has values, and four others are zeroes.
+training$num_window %>% table(training$classe) %>% "=="(0) %>% rowSums %>%
+        "!="(4) %>% sum
+```
+
+This is even more clearly shown as a chart.
+
+```{r}
+training %>% with(qplot(X, num_window, color=classe, main="text")) %>% print
+```
+
+We also remove non-sensor measurements: line numbers, user names,
+timestamps and new window markers.
 ```{r, cache=TRUE}
-nas<-sapply(training, function(x) sum(is.na(x) | x==""))
+nas<-sapply(training, function(x) sum(is.na(x) | x == "" | x == "#DIV/0!"))
 trainingNotNA<-training[,names(nas[nas == 0])]
 tr<-trainingNotNA[,-(1:6)]
-dim(training)
-dim(tr)
 ```
+
+
 
 NUM_WINDOWS PREDICTS 99.97%
 
@@ -296,3 +349,10 @@ confusionMatrix(ifelse(isC >0,1,0),ifelse(ts$classe=="C",1,0))
 unique(training[training$user_name=="jeremy","num_window"])
 print(qplot(x=training$X,y=training$num_window,color=training$classe))
 ```
+
+### Appendices
+
+## Appendix 1. References
+
+Dataset source is  
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201). Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
