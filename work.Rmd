@@ -197,8 +197,8 @@ system.time(fitGBM5 <- train(classe~.,data=tr[,c(1:5,54)],
                         method="gbm", trControl=ctrl))
 confusionMatrix(predict(fitGBM5, testing), testing$classe)
 set.seed(1)
-system.time(fitGBM50 <- train(classe~.,data=tr,
-                        method="gbm", n.trees=50, trControl=ctrl))
+system.time(fitGBM50 <- train(classe~.,data=tr[,2:54],
+                        method="gbm", trControl=ctrl))
 confusionMatrix(predict(fitGBM50, testing), testing$classe)
 set.seed(1)
 system.time(fitGBM <- train(classe~.,data=tr12,
@@ -292,3 +292,7 @@ confusionMatrix(ifelse(isC >0,1,0),ifelse(ts$classe=="C",1,0))
 # 81 %
 ```
 
+```{r, eval=FALSE}
+unique(training[training$user_name=="jeremy","num_window"])
+print(qplot(x=training$X,y=training$num_window,color=training$classe))
+```
