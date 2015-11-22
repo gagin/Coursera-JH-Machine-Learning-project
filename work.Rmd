@@ -5,9 +5,35 @@ date: "November 18, 2015"
 output: html_document
 ---
 
+```{r package_options, include=FALSE}
+knitr::opts_knit$set(message = FALSE, warning = FALSE, cache = TRUE)
+```
+
 ### Summary
 
-[A dataset](http://groupware.les.inf.puc-rio.br/har) analyzed in this paper
+In this research a dataset of sensor readings from subjects performing
+a weightlifting exercise in correct and flawed techniques is analyzed. The goal
+is to see if machine learning algorithms can be used to recognize exercise
+techniques based on sensor data. It's shown that Random Forest training
+algorithm with  out-of-bag resampling method produces the best results both
+in predictiona accuracy and training time. After reducing dataset to 52
+original sensor reading predictors and training with 500 trees,
+validation on out-of-sample group of data
+point resulted in 99.52% prediction accuracy (95% confidence interval
+for prediction accuracy is 99.24-99.71% - better than accuracy listed in
+original research paper on this dataset, which was 98.03%).
+
+This exercise was also done to perform prediction as an assignment in Practical
+Machine Learning class in Data Science specialization on Coursera. Assignment's
+testing dataset included not just the sensor readings, but also an observation
+id that allows to calculate outcomes without using machine learning. These
+outcomes were also used for verification of machine learning predictions based
+on sensors, and they match ideally. 
+
+### Exploratory analysis
+
+[A dataset](http://groupware.les.inf.puc-rio.br/har) (see Appendix 1)
+analyzed in this paper
 includes sensor data from six subjects executing same weightlifting excersize
 in five styles, only one of which is correct. It's shown how machine learning
 can be used two interpret sensor data to recognize exercise styles. Practical
@@ -18,26 +44,21 @@ Learning class
 in Data Science specialization on Coursera and is focused on applying machine
 learning methods to the dataset.
 
-While it will be shown that we do not need machine learning algorithms to generate
-correct prediction for testing dataset provided by Coursera, sensor data
-can still be used to recognize weightlifting exercise styles with high degree
-of accuracy, and computing time for the learning process required to reach
-benchmark accuracy rate (the original article quotes 98.03%) is quite brief.
-
-### Exploratory analysis
-
 ```{r, include=FALSE}
 # setwd(file.path(normalizePath("~"),"kaggle","predmachlearn-034"))
 library(caret)
 library(dplyr)
 library(gridExtra)
+library(randomForest)
+library(rpart)
 ```
 
 We download the training dataset and split it to three parts - 60% training,
-20% development test, 20% validation of out-of-sample error. The selected
-algorithm will be later re-trained on the full set of training data before
-making predictions on the testing part of the dataset that will be downloaded
-separately and submitted as a second part of this project assignment.
+20% development test, 20% validation of out-of-sample error. The model selection
+work will be done with training and test parts, and then once model approach
+is settled, the algorithm will be trained on merged train and test subsets
+and checked against validation subset (set aside until that point) to assess
+out-of-sample prediction accuracy.
 
 ```{r, cache=TRUE}
 remote <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
@@ -79,7 +100,7 @@ length <- training[training$num_window %in% have.prev,
 last.obs <- training %>% with(new_window == "yes" &
                                       num_window == names(length)) %>% which
 range.obs <- (last.obs - length - 1):(last.obs + 1)
-training[range.obs,c(1,2,6,7,8,12,17,18,160)]
+training[range.obs,c(6,7,8,12,18,160)]
 ```
 
 Because they go last, we assume that the last observation in each window contains
@@ -173,7 +194,7 @@ try.rf <- function(ctl, trees=5) {
 trainControl() %>% try.rf -> mod5
 ```
 
-### Optimizing train control for the Random Forest
+### Optimizing resampling for the Random Forest
 
 Before running the long training, we try to optimize different parameters
 for train control. For the speed, we keep
@@ -184,7 +205,61 @@ After running tests with various train control methods, we find "repeatedcv",
 "adaptive_boot", and "adaptive_LGOCV" methods to work better than others in
 terms of accuracy/speed balance, but the best method is "out-of-bag" - it
 provides good accuracy,  while being dramatically faster, and its accuracy
-to increase in number of trees stronger. We will use it further.
+to increase in number of trees stronger. Particular measurements are shown
+in Appendix 2.
+
+### Optimizing by reduction of predictors
+
+We try to improve accuracy/speed balance by reducing number of predictors
+in three ways: by using Principal Component Analysis, by manually selecting
+predictors most correlated with outcomes, and by modeling by each of four
+sensors separately. See Appendix 3 for the code. Neither of these leads to 
+improvement, so we infer that all sensors are needed to correcly identify
+exercise techniques.
+
+### Building final model
+
+We now merge training and testing subsets, and then use this wider dataset
+to train the final model with Random Forest at high number of trees and with
+previously found cross-validation parameters (oob). We apply then resulting
+model to validation dataset to infer out-of-sample accuracy assessment.
+
+```{r, cache=TRUE}
+training2 <- rbind(training, testing)
+nas2 <- sapply(training2, function(x) sum(is.na(x) | x == "" | x == "#DIV/0!"))
+trainingNotNA2 <- training2[, names(nas2[nas2 == 0])]
+tr2 <- trainingNotNA2[, -(1:7)]
+
+set.seed(1)
+system.time(
+        mod500oob <- train(classe~., data=tr2, method="rf",
+                        ntree=500, trControl=trainControl(method="oob"))
+                        ) %>% print
+
+confusionMatrix(predict(mod500oob,validating),validating$classe)
+```
+
+Comparison to answers derived from num_window shows full match.
+
+```{r, cache=TRUE}
+confusionMatrix(predict(mod500oob, assignment), answers)$overall[1]
+```
+
+We check the most importent predictors as identified by the final model and
+see that they don't fully match the list of the most correlated in Appendix 3.
+
+```{r, cache=TRUE}
+varImpPlot(mod500oob$finalModel, main="Most influencial sensor readings")
+```
+
+### Appendices
+
+#### Appendix 1. References
+
+Dataset source is  
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201). Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+#### Appendix 2. Trials of various resampling methods
 
 ```{r, cache=TRUE}
 set.seed(1)
@@ -231,14 +306,13 @@ ctl <- trainControl(method="oob")
 
 ```
 
-Just out of curiocity, we check fastest model against our answers and see that
-just a single answer out of 20 is misclassified.
-
+Just out of curiocity, we check the fastest model against our answers and see that
+it already performs well.
 ```{r, cache=TRUE}
-confusionMatrix(predict(mod5oob, assignment), answers)
+confusionMatrix(predict(mod5oob, assignment), answers)$overall[1]
 ```
 
-### Optimizing by reduction of predictors
+#### Appendix 3. Reduction of predictors attempts
 
 We try to use reduction of predictors via  Principal Component pre-processing
 Analysis and see that PCA doesn't improve either accuracy or speed.
@@ -339,46 +413,3 @@ system.time(
 confusionMatrix(predict(mod.dumbbell, testing),
                         testing$classe)$overall[1] %>% print
 ```
-
-### Training with Generalized Boosted Regression
-
-We try top use GBM (Generalized Boosted Regression Modeling) method but it
-quite slow and doesn't improve accuracy.
-
-```{r, cache=TRUE}
-set.seed(1)
-system.time(fitGBM <- train(classe~.,data=tr,
-                        method="gbm", verbose=FALSE))
-confusionMatrix(predict(fitGBM, testing), testing$classe)
-```
-
-### Out-of-sample accuracy prediction
-
-We train model with Random Forest at high number of trees and with previously
-found
-cross-validation parameters. We apply resulting model to validation dataset
-to infer out-of-sample accuracy assessment.
-
-```{r}
-set.seed(1)
-system.time(
-        ctl %>% try.rf(500) -> mod500oob
-        ) %>% print
-confusionMatrix(predict(mod500oob,validating),validating$classe)
-```
-
-
-Comparison to answers derived from num_window shows full match.
-
-```{r}
-confusionMatrix(predict(mod500oob, assignment), answers)$overall[1]
-```
-
-
-
-### Appendices
-
-## Appendix 1. References
-
-Dataset source is  
-Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201). Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
