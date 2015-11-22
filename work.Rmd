@@ -1,8 +1,8 @@
 ---
-title: "Barbell movement analysis"
+title: "Application of machine learning algorithms to weightlifting sensor data"
 author: "Alex Gaggin"
-date: November 18, 2015
-output: pdf_document
+date: "November 18, 2015"
+output: html_document
 ---
 
 ### Summary
@@ -22,7 +22,7 @@ While it will be shown that we do not need machine learning algorithms to genera
 correct prediction for testing dataset provided by Coursera, sensor data
 can still be used to recognize weightlifting exercise styles with high degree
 of accuracy, and computing time for the learning process required to reach
-benchmark accuracy rate (the original article quotes 98.03%) is quite short.
+benchmark accuracy rate (the original article quotes 98.03%) is quite brief.
 
 ### Exploratory analysis
 
@@ -39,7 +39,7 @@ algorithm will be later re-trained on the full set of training data before
 making predictions on the testing part of the dataset that will be downloaded
 separately and submitted as a second part of this project assignment.
 
-```{r}
+```{r, cache=TRUE}
 remote <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
 dl.read <- function(remote) {
         loc <- basename(remote)
@@ -71,7 +71,7 @@ We keep in mind that in the training set some rows are taken out for
 verification sub-sets while selecting it, and remember that so the actual window
 is probably longer, and there are more variables that shown in the example.
 
-```{r}
+```{r, cache=TRUE}
 finished <- training[training$new_window == "yes", "num_window"]
 have.prev <- finished[((finished-1) %in% finished)]
 length <- training[training$num_window %in% have.prev,
@@ -89,11 +89,11 @@ on this aggregates for decisions, but for the purpose of this paper we ignore
 these additional variables and will only keep ones that have values for every
 observation.
 
-By the way, all variables of each window are identified  as the same class (calculation
-to verify this statement is shown below). Apparently,
+By the way, all variables of each window are identified  as the same class
+(calculation to verify this statement is shown below). Apparently,
 because each window is an example of particular weightlifting exercise form.
 
-```{r}
+```{r, cache=TRUE}
 # A cross table of window number vs response class, only one class for each
 # window has values, and four others are zeroes.
 training$num_window %>% table(training$classe) %>% "=="(0) %>% rowSums %>%
@@ -113,7 +113,7 @@ we can get answers without using machine learning, but with direct lookup by
 window number instead. We get these with the goal to use them as verification
 for machine learning predictions based on sensor data.
 
-```{r}
+```{r, cache=TRUE}
 remote <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
 assignment <- dl.read(remote)
 # We use the full original training data set just in case of caret completely
@@ -138,6 +138,8 @@ dim(tr)
 
 ### Training with Recursive Partitioning
 
+Because we have categorical outcomes, we can't use linear models, but turn
+to classification trees instead.
 We try to build simple decision tree and see that it fails to provide
 a prediction much better than a coin flip. We use accuracy rate and training
 time as two parameters we are interested in.
@@ -163,7 +165,7 @@ set.seed(1)
 try.rf <- function(ctl, trees=5) {
         system.time(
                 mod <- train(classe~., data=tr, method="rf",
-                             ntree=trees, trainControl=ctl)) %>% print       
+                             ntree=trees, trControl=ctl)) %>% print       
         confusionMatrix(predict(mod, testing),
                         testing$classe)$overall[1] %>% print
         return(mod)
@@ -171,13 +173,18 @@ try.rf <- function(ctl, trees=5) {
 trainControl() %>% try.rf -> mod5
 ```
 
-Before running the long analysis, we try to optimize different parameters
-of the training. First, we try using cross-validation instead of
-default bootstrapping as resampling method and see that it improves the speed
-three times while
-maintaining basically the same prediction accuracy. For the speed, we keep
+### Optimizing train control for the Random Forest
+
+Before running the long training, we try to optimize different parameters
+for train control. For the speed, we keep
 number of trees low. We realize that we don't know if the comparison results
 depend on number of trees, but for the speed we presume they are.
+
+After running tests with various train control methods, we find "repeatedcv",
+"adaptive_boot", and "adaptive_LGOCV" methods to work better than others in
+terms of accuracy/speed balance, but the best method is "out-of-bag" - it
+provides good accuracy,  while being dramatically faster, and its accuracy
+to increase in number of trees stronger. We will use it further.
 
 ```{r, cache=TRUE}
 set.seed(1)
@@ -190,210 +197,184 @@ set.seed(1)
 trainControl(method="repeatedcv", number=5, repeats=5) %>% try.rf -> mod5rcv5.5
 
 set.seed(1)
-trainControl() %>% try.rf(20) -> mod20
-
-
+trainControl(method="repeatedcv", number=20, repeats=2) %>% try.rf -> mod5rcv20.2
 
 set.seed(1)
-ctrl <- trainControl(method="repeatedcv", number=5, repeats=2)
-system.time(mod5rcv<-train(classe~., data=tr,method="rf", ntree=5, trControl=ctrl))
-confusionMatrix(predict(mod5rcv, testing),testing$classe)
+trainControl(method="cv", number=5) %>% try.rf -> mod5cv5
+
+set.seed(1)
+trainControl(method="oob") %>% try.rf -> mod5oob
+
+set.seed(1)
+trainControl(method="boot632") %>% try.rf -> mod5b6
+
+set.seed(1)
+trainControl(method="adaptive_boot") %>% try.rf -> mod5ab
+
+set.seed(1)
+trainControl(method="adaptive_cv") %>% try.rf -> mod5acv
+
+set.seed(1)
+trainControl(method="LGOCV") %>% try.rf -> mod5lgocv
+
+set.seed(1)
+trainControl(method="adaptive_LGOCV") %>% try.rf -> mod5algocv
+
+set.seed(1)
+trainControl(method="oob") %>% try.rf(10) -> mod10oob
+
+trainControl(method="adaptive_boot") %>% try.rf(10) -> mod10b
+
+trainControl(method="adaptive_LGOCV") %>% try.rf(10) -> mod10algocv
+
+ctl <- trainControl(method="oob")
+
 ```
 
-We also see that using just single cross-validation is faster, but costs in
-accuracy - it falls to 97.81%-98.65%. Increasing number of repeats doesn't
-improve it. Increasing number of folds to 10 (default) increases accuracy
-to 98.94%-99.5%.
+Just out of curiocity, we check fastest model against our answers and see that
+just a single answer out of 20 is misclassified.
+
+```{r, cache=TRUE}
+confusionMatrix(predict(mod5oob, assignment), answers)
+```
+
+### Optimizing by reduction of predictors
+
+We try to use reduction of predictors via  Principal Component pre-processing
+Analysis and see that PCA doesn't improve either accuracy or speed.
 
 ```{r, cache=TRUE}
 set.seed(1)
-ctrl <- trainControl(method="cv", number=5)
-system.time(mod5cv<-train(classe~., data=tr,method="rf", ntree=5, trControl=ctrl))
-confusionMatrix(predict(mod5cv, testing),testing$classe)
-
-set.seed(1)
-ctrl <- trainControl(method="repeatedcv", number=5, repeats=5)
-system.time(mod5rcv5<-train(classe~., data=tr,method="rf", ntree=5, trControl=ctrl))
-confusionMatrix(predict(mod5rcv5, testing),testing$classe)
-
-set.seed(1)
-ctrl <- trainControl(method="repeatedcv", number=10, repeats=2)
-system.time(mod5rcv10<-train(classe~., data=tr,method="rf", ntree=5, trControl=ctrl))
-confusionMatrix(predict(mod5rcv10, testing),testing$classe)
+system.time(
+        mod5PCA <- train(classe~., data=tr, method="rf",
+                        ntree=5, trControl=ctl, preProcess="pca", thresh=0.8)
+                        ) %>% print       
+confusionMatrix(predict(mod5PCA, testing),
+                        testing$classe)$overall[1] %>% print
 ```
 
-At 150 trees with 5 folds and 2 repeats it takes 6 minutes on a desktop PC
-to train it with prediction accuracy interval 99.43%-99.82% - still better than
-benchmark.
-
-
-```{r, cache=TRUE}
-set.seed(1)
-ctrl <- trainControl(method="repeatedcv", number=5, repeats=2,
-                           verboseIter=TRUE)
-system.time(mod150<-train(classe~., data=tr,method="rf", ntree=150, trControl=ctrl))
-confusionMatrix(predict(mod150, testing),testing$classe)
-```
-
-We try to further improve speed while keeping accuracy by reducing number of
-features - we only keep ones that are most
-correlated with outcomes. We select three features that are most
-correlated with each of five predicted classes (each will be converted to
-separate 0/1 variable to calculate numeric correlations), and get 12
-correlated variables.
+We try manual selection of predictors with
+highest correlation to outcomes (after making the outcomes separate 0/1
+numeric variables). We see that thes increases speed but at a great
+accuracy loss. We try to use speed gain to allow for more trees and folds
+but it doesn't improve accuracy/speed balance either.
 
 ```{r, cache=TRUE}
-nume<-tr[,1:53]
+nume<-tr[,1:52]
 nume$A <- ifelse(tr$classe == "A", 1, 0)
 nume$B <- ifelse(tr$classe == "B", 1, 0)
 nume$C <- ifelse(tr$classe == "C", 1, 0)
 nume$D <- ifelse(tr$classe == "D", 1, 0)
 nume$E <- ifelse(tr$classe == "E", 1, 0)
 nume.corr <- cor(nume)
-corA <- nume.corr[54,1:53] %>% sort(decr=TRUE) %>% head(3) %>% names
-corB <- nume.corr[55,1:53] %>% sort(decr=TRUE) %>% head(3) %>% names
-corC <- nume.corr[56,1:53] %>% sort(decr=TRUE) %>% head(3) %>% names
-corD <- nume.corr[57,1:53] %>% sort(decr=TRUE) %>% head(3) %>% names
-corE <- nume.corr[58,1:53] %>% sort(decr=TRUE) %>% head(3) %>% names
+corA <- nume.corr[53,1:52] %>% sort(decr=TRUE) %>% head(3) %>% names
+corB <- nume.corr[54,1:52] %>% sort(decr=TRUE) %>% head(3) %>% names
+corC <- nume.corr[55,1:52] %>% sort(decr=TRUE) %>% head(3) %>% names
+corD <- nume.corr[56,1:52] %>% sort(decr=TRUE) %>% head(3) %>% names
+corE <- nume.corr[57,1:52] %>% sort(decr=TRUE) %>% head(3) %>% names
 (correlated <- unique(c(corA, corB, corC, corD, corE)))
 tr12 <- tr[, correlated]
 tr12$classe <- tr$classe
-```
 
-It looks like execution time almost halved this way, while prediction accuracy
-is similar. Supposedly Random Forest automatically discovers same feature
-importance.
-
-```{r}
 set.seed(1)
-ctrl <- trainControl(method="repeatedcv", number=5, repeats=2)
-system.time(mod5rcv5.12<-train(classe~., data=tr,method="rf", ntree=5, trControl=ctrl))
-confusionMatrix(predict(mod5rcv5.12, testing),testing$classe)
-# 15 sec (0.9861, 0.9927)
-```
+system.time(
+        mod12 <- train(classe~., data=tr12, method="rf",
+                        ntree=5, trControl=ctl)
+                        ) %>% print       
+confusionMatrix(predict(mod12, testing),
+                        testing$classe)$overall[1] %>% print
 
-Another approach is to check if multiple sensor are even needed. What if we
-predict just based on belt sensors?
-
-```{r}
 set.seed(1)
-ctrl <- trainControl(method="repeatedcv", number=5, repeats=2)
-system.time(mod<-train(classe~., data=tr[, c(1,54)], method="rf", ntree=5, trControl=ctrl))
-confusionMatrix(predict(mod, testing),testing$classe)
-# 15 sec (0.9861, 0.9927)
+system.time(
+        mod12.20 <- train(classe~., data=tr12, method="rf",
+                        ntree=20, trControl=ctl)
+                        ) %>% print       
+confusionMatrix(predict(mod12.20, testing),
+                        testing$classe)$overall[1] %>% print
 ```
 
-To try another model,
-we use GBM (Generalized Boosted Regression Modeling) method with low number of
-trees to predict. We change number of trees and number of available features
-to compare speed and accuracy.
+Another approach is to check if multiple sensor are even needed. We see that
+while belt sensor data seems to provide better accuracy overall, but
+any single sensor is worse than all of the together, and worse than predictors
+selected by highest correlations to outcomes.
 
 ```{r, cache=TRUE}
-ctrl <- trainControl(method="repeatedcv", number=5, repeats=2, verboseIter=TRUE)
+tr.belt <- tr[, grepl("belt",names(tr),fixed=TRUE)]
+tr.belt$classe <- tr$classe
 set.seed(1)
-system.time(fitGBM5 <- train(classe~.,data=tr[,c(1:5,54)],
-                        method="gbm", trControl=ctrl))
-confusionMatrix(predict(fitGBM5, testing), testing$classe)
+system.time(
+        mod.belt <- train(classe~., data=tr.belt, method="rf",
+                        ntree=5, trControl=ctl)
+                        ) %>% print       
+confusionMatrix(predict(mod.belt, testing),
+                        testing$classe)$overall[1] %>% print
+
+tr.forearm <- tr[, grepl("forearm",names(tr),fixed=TRUE)]
+tr.forearm$classe <- tr$classe
 set.seed(1)
-system.time(fitGBM50 <- train(classe~.,data=tr[,2:54],
-                        method="gbm", trControl=ctrl))
-confusionMatrix(predict(fitGBM50, testing), testing$classe)
+system.time(
+        mod.forearm <- train(classe~., data=tr.forearm, method="rf",
+                        ntree=5, trControl=ctl)
+                        ) %>% print       
+confusionMatrix(predict(mod.forearm, testing),
+                        testing$classe)$overall[1] %>% print
+
+tr.arm <- tr[, grepl("_arm",names(tr),fixed=TRUE)]
+tr.arm$classe <- tr$classe
 set.seed(1)
-system.time(fitGBM <- train(classe~.,data=tr12,
-                        method="gbm", n.trees=5, trControl=ctrl))
+system.time(
+        mod.arm <- train(classe~., data=tr.arm, method="rf",
+                        ntree=5, trControl=ctl)
+                        ) %>% print       
+confusionMatrix(predict(mod.arm, testing),
+                        testing$classe)$overall[1] %>% print
+
+tr.dumbbell <- tr[, grepl("dumbbell",names(tr),fixed=TRUE)]
+tr.dumbbell$classe <- tr$classe
+set.seed(1)
+system.time(
+        mod.dumbbell <- train(classe~., data=tr.dumbbell, method="rf",
+                        ntree=5, trControl=ctl)
+                        ) %>% print       
+confusionMatrix(predict(mod.dumbbell, testing),
+                        testing$classe)$overall[1] %>% print
+```
+
+### Training with Generalized Boosted Regression
+
+We try top use GBM (Generalized Boosted Regression Modeling) method but it
+quite slow and doesn't improve accuracy.
+
+```{r, cache=TRUE}
+set.seed(1)
+system.time(fitGBM <- train(classe~.,data=tr,
+                        method="gbm", verbose=FALSE))
 confusionMatrix(predict(fitGBM, testing), testing$classe)
-# failed
 ```
 
-It is much faster - takes 37 seconds to train on a
-desktop PC and we get prediction accuracy
-in the interval 99.15%-99.65% which is very close to benchmark set for this
-dataset.
+### Out-of-sample accuracy prediction
 
-We use Random Forest to improve weak trees and find that with default settings
-accuracy is high: 99.68-99.93%.
-
-
-
-Try to use less variables to make it work faster
+We train model with Random Forest at high number of trees and with previously
+found
+cross-validation parameters. We apply resulting model to validation dataset
+to infer out-of-sample accuracy assessment.
 
 ```{r}
-system.time(mod42<-train(classe~., data=tr[,c(2,3,4,5,55)],method="rf", ntree=3))
-confusionMatrix(predict(mod42, testing),testing$classe)
-# 12 sec,  99.6-99.89%
+set.seed(1)
+system.time(
+        ctl %>% try.rf(500) -> mod500oob
+        ) %>% print
+confusionMatrix(predict(mod500oob,validating),validating$classe)
 ```
 
-But why these four?
+
+Comparison to answers derived from num_window shows full match.
 
 ```{r}
-pps<-prcomp(tr[, -c(1,55)], scale=T)
-sort(pps$rotation[,1]) %>% tail(4) %>% names -> impacting
-mod47<-train(classe~., data=tr[,c(impacting,"classe")],method="rf", ntree=3)
-confusionMatrix(predict(mod47, testing),testing$classe)
-# Still only 63%
+confusionMatrix(predict(mod500oob, assignment), answers)$overall[1]
 ```
 
-Try to scale
-```{r}
-scaled <- sapply(tr[,-c(1,55)],scale) %>% as.data.frame
-tr5<-scaled
-tr5$classe<-tr$classe
-```
 
-Try neuralnet
-
-```{r}
-tr6<-tr[,-c(1,55)]
-ftml<-xyform("cl",names(tr6))
-tr6$cl<-ifelse(tr$classe=="A",1,0)
-nnA<-neuralnet(ftml,tr6,hidden=5,lifesign="full",thre=0.7)
-tr6$cl<-ifelse(tr$classe=="B",1,0)
-nnB<-neuralnet(ftml,tr6,hidden=5,lifesign="full",thre=0.7)
-tr6$cl<-ifelse(tr$classe=="C",1,0)
-nnC<-neuralnet(ftml,tr6,hidden=5,lifesign="full",thre=0.5)
-tr6$cl<-ifelse(tr$classe=="D",1,0)
-nnD<-neuralnet(ftml,tr6,hidden=5,lifesign="full",thre=0.7)
-tr6$cl<-ifelse(tr$classe=="E",1,0)
-nnE<-neuralnet(ftml,tr6,hidden=5,lifesign="full",thre=0.7)
-
-testingNotNA<-testing[,names(nas[nas == 0])]
-ts<-testingNotNA[,-(1:6)]
-ts6<-ts[,-c(54)]
-#ts6$cl<-ifelse(ts$classe=="A",1,0)
-#res<-ifelse(neuralnet::compute(nn, ts6)$net.result >0.5,1,0)
-#confusionMatrix(res,ts6$cl)
-# 82% of determining if it's A
-#isA<-neuralnet::compute(nnA, ts6)$net.result
-#isB<-neuralnet::compute(nnB, ts6)$net.result
-#isC<-neuralnet::compute(nnC, ts6)$net.result
-#isD<-neuralnet::compute(nnD, ts6)$net.result
-#isE<-neuralnet::compute(nnE, ts6)$net.result
-isA<-scale(neuralnet::compute(nnA, ts6)$net.result)
-isB<-scale(neuralnet::compute(nnB, ts6)$net.result)
-isC<-scale(neuralnet::compute(nnC, ts6)$net.result)
-isD<-scale(neuralnet::compute(nnD, ts6)$net.result)
-isE<-scale(neuralnet::compute(nnE, ts6)$net.result)
-projs<-cbind(isA,isB,isC,isD,isE)
-projs<-as.data.table(projs)
-setnames(projs,names(projs),c("A","B","C","D","E"))
-rrr<-matrix(NA,ncol=1)
-for(i in 1:length(projs$A)) rrr<-cbind(rrr,names(which.max(projs[i,])))
-#table(rrr[-1],ts$classe)
-confusionMatrix(rrr[-1],ts$classe)
-# Why C sensitivity is sooo low?
-# 40%
-confusionMatrix(ifelse(isA >0,1,0),ifelse(ts$classe=="A",1,0))
-# 80 %
-confusionMatrix(ifelse(isB >0,1,0),ifelse(ts$classe=="B",1,0))
-# 81 %
-confusionMatrix(ifelse(isC >0,1,0),ifelse(ts$classe=="C",1,0))
-# 81 %
-```
-
-```{r, eval=FALSE}
-unique(training[training$user_name=="jeremy","num_window"])
-print(qplot(x=training$X,y=training$num_window,color=training$classe))
-```
 
 ### Appendices
 
