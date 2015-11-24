@@ -57,11 +57,20 @@ f.lda <- train(diagnosis~.,data=training, method="lda")
 p.lda <- predict(f.lda,testing)
 confusionMatrix(p.lda,testing$diagnosis)$overall[1]
 # 0.7682927 
-merged<-as.data.frame(cbind(training$diagnosis,predict(f.rf,training),predict(f.gbm,training),predict(f.lda,training)))
-names(merged)<-c("diagnosis","rf","gbm","lda")
+
+merged<-as.data.frame(training$diagnosis)
+names(merged)<-"diagnosis"
+merged$rf<-predict(f.rf,training)
+merged$gbm<-predict(f.gbm,training)
+merged$lda<-predict(f.lda,training)
+
 f.e<-train(diagnosis~.,data=merged,method="rf")
-merged.t<-as.data.frame(cbind(p.rf,p.gbm,p.lda))
-names(merged.t)<-c("rf","gbm","lda")
-confusionMatrix(predict(f.e,merged.t),as.integer(testing$diagnosis))$overall[1]
+
+merged2<-as.data.frame(testing$diagnosis)
+names(merged2)<-"diagnosis"
+merged2$rf<-predict(f.rf,testing)
+merged2$gbm<-predict(f.gbm,testing)
+merged2$lda<-predict(f.lda,testing)
+confusionMatrix(predict(f.e,merged2),as.integer(testing$diagnosis))$overall[1]
 
 
