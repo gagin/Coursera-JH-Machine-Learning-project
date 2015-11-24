@@ -1,6 +1,6 @@
 # Machine Learning Coursera - Week 4 quiz
 library(checkpoint)
-checkpoint(snapshotDate = '2015-08-01')
+checkpoint(snapshotDate = '2015-05-01')
 
 library(caret)
 library(ElemStatLearn)
